@@ -25,3 +25,9 @@ HAL -> Driver -> Application
 - Distance calculation
 - UART logging
 - Threshold handling
+
+## Build & Flash
+```
+make
+make flash
+```
