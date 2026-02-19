@@ -7,10 +7,9 @@ TMPDIR_WIN = C:\Users\Andrew Williams\AppData\Local\Temp
 # Support files (headers + linker scripts)
 SUPPORT_INC    = /c/toolchains/msp430-gcc-support-files/include
 SUPPORT_LD_DIR = /c/toolchains/msp430-gcc-support-files/include
-LDSCRIPT       = /c/toolchains/msp430-gcc-support-files/include/msp430fr5994.ld
 
 CFLAGS  = -mmcu=$(MCU) -Wall -O2 -I"$(SUPPORT_INC)"
-LDFLAGS = -Wl,-L"$(SUPPORT_LD_DIR)" -Wl,-T"$(LDSCRIPT)"
+LDFLAGS = -Wl,-L"$(SUPPORT_LD_DIR)"
 
 DSLite_EXE = /c/ti/uniflash_9.4.1/deskdb/content/TICloudAgent/win/ccs_base/DebugServer/bin/DSLite.exe
 CCXML      = tools/MSP430FR5994.ccxml
@@ -28,7 +27,7 @@ $(OBJ): src/main.c | build
 	TEMP="$(TMPDIR_WIN)" TMP="$(TMPDIR_WIN)" $(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJ)
-	TEMP="$(TMPDIR_WIN)" TMP="$(TMPDIR_WIN)" $(CC) $^ $(LDFLAGS) -o $@
+	TEMP="$(TMPDIR_WIN)" TMP="$(TMPDIR_WIN)" $(CC) -mmcu=$(MCU) $^ $(LDFLAGS) -o $@ -lgcc
 
 flash: $(TARGET).elf
 	"$(DSLite_EXE)" flash --config="$(CCXML)" --flash --verify "$(ELF)" --reset=0 --run
