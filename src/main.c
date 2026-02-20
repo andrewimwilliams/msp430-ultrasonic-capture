@@ -39,6 +39,7 @@ static volatile uint16_t echo_width_us = 0;
 static volatile bool echo_got_pulse = false;
 static volatile bool echo_wait_falling = false;
 static volatile bool blink_enabled = false;
+static volatile bool measure_due = false;
 
 // Simple clamp
 static uint16_t clamp_u16(uint16_t v, uint16_t lo, uint16_t hi) {
@@ -55,6 +56,12 @@ static void timers_init(void) {
     TA0CCTL0 = 0;
     TA0CCR0  = (uint16_t)(ACLK_HZ / 2);
     TA0CTL   = TASSEL__ACLK | MC__STOP | TACLR;
+
+    // TA2: measurement tick using ACLK
+    TA2CCTL0 = CCIE;
+    TA2CCR0  = (uint16_t)((uint32_t)ACLK_HZ * MEAS_PERIOD_MS / 1000u);
+    if (TA2CCR0 < 1) TA2CCR0 = 1;
+    TA2CTL   = TASSEL__ACLK | MC__UP | TACLR;
 }
 
 static void clocks_init_1mhz_smclk(void) {
@@ -152,14 +159,19 @@ static void blink_start_or_update_ms(uint16_t period_ms) {
 
 // Trigger a measurement and wait up to ~35ms for an echo pulse width
 static bool measure_echo_pulse(void) {
+    uint16_t gie = __get_SR_register() & GIE;
+    __disable_interrupt();
+
     echo_got_pulse = false;
     echo_wait_falling = false;
 
     // Ensure interrupt is set to rising edge before triggering
     ECHO_IE  &= ~ECHO_PIN;
     ECHO_IFG &= ~ECHO_PIN;
-    ECHO_IES &= ~ECHO_PIN;
+    ECHO_IES &= ~ECHO_PIN;   // rising
     ECHO_IE  |= ECHO_PIN;
+
+    if (gie) __enable_interrupt();
 
     // Send TRIG: low -> high 10us -> low
     TRIG_OUT &= ~TRIG_PIN;
@@ -172,6 +184,8 @@ static bool measure_echo_pulse(void) {
     uint16_t t0 = TA1R;
     while (!echo_got_pulse) {
         if ((uint16_t)(TA1R - t0) > 35000) {
+            // Put edge select back to rising for next time
+            ECHO_IE &= ~ECHO_PIN;
             ECHO_IES &= ~ECHO_PIN;
             echo_wait_falling = false;
             return false;
@@ -199,33 +213,27 @@ static void update_blink_from_measurement(uint16_t cm, bool valid) {
 
 int main(void) {
     WDTCTL = WDTPW | WDTHOLD;
-
-    // FRAM devices start with GPIO locked high-Z
     PM5CTL0 &= ~LOCKLPM5;
 
     clocks_init_1mhz_smclk();
     gpio_init();
     timers_init();
 
-    // Start in a known safe state
     blink_stop_hard();
 
     __enable_interrupt();
 
     while (1) {
+        // Sleep until the measurement timer says wake
+        while (!measure_due) {
+            __bis_SR_register(LPM0_bits | GIE);
+            __no_operation();
+        }
+        measure_due = false;
+
         bool ok = measure_echo_pulse();
-        uint16_t cm = 0;
-
-        if (ok) {
-            cm = pulse_us_to_cm(echo_width_us);
-        }
-
+        uint16_t cm = ok ? pulse_us_to_cm(echo_width_us) : 0;
         update_blink_from_measurement(cm, ok);
-
-        // Measurement period
-        for (uint8_t i = 0; i < (MEAS_PERIOD_MS / 10); i++) {
-            delay_us(10000);
-        }
     }
 }
 
@@ -266,4 +274,13 @@ void timer0_a0_isr(void) {
     if (blink_enabled) {
         LED_OUT ^= LED_PIN;
     }
+}
+
+// Measurement scheduler ISR (TimerA2 CCR0)
+// Fires every MEAS_PERIOD_MS using ACLK
+// Sets measure_due flag, wakes CPU from LPM0 so main() can trigger new ultrasonic measurement
+__attribute__((interrupt(TIMER2_A0_VECTOR)))
+void timer2_a0_isr(void) {
+    measure_due = true;
+    __bic_SR_register_on_exit(LPM0_bits); // wake main
 }
