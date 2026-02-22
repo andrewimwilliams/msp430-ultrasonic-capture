@@ -1,4 +1,3 @@
 # ELF make and build files
 *.elf
 /build
-/images
