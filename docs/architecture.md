@@ -7,6 +7,7 @@ The system:
 - Converts pulse width to distance (cm)
 - Maps distance to a blink period
 - Uses a hardware timer interrupt to blink an LED
+- Displays detection state and last measured distance on an LCD
 - Sleeps between measurements to avoid wasting CPU cycles
 
 The architecture is timer-driven and event-based.
@@ -113,5 +114,18 @@ TA0 ISR toggles LED:
 LED_OUT ^= LED_PIN;
 ```
 Blinking is fully asynchronous from measurement.
+
+### 8. LCD Render
+LCD display is updated based on `{ok, cm}` after each measurement cycle.
+Driven by a small state machine:
+- `LCD_STATE_NO_OBJECT`  
+  Display: “No object / detected!”
+- `LCD_STATE_TOO_CLOSE`  
+  Display: “Object too / close!”
+- `LCD_STATE_DETECTED`  
+  Display: “Object: <cm> cm / Blinking”
+
+### 9. Repeat
+Return to LPM0 until next TA2 tick.
 
 ---
